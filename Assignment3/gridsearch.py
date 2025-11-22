@@ -757,20 +757,16 @@ best_model2_l2reg = best_hyper2_l2reg[1][2]
 print(f"Best hyperparameters for L=2 with L2 regularization: L2 Reg = {best_hyper2_l2reg[0][0]:.3}, Learning Rate = {best_hyper2_l2reg[0][1]:.3} with Test Accuracy = {best_hyper2_l2reg[1][0]:.3} over {best_hyper2_l2reg[1][1]} epochs")
 
 # save all model results
-with open(os.path.join(MODELDIR, 'regularization_grid_search_results.pkl'), 'wb') as f:
+with open(os.path.join(MODELDIR, 'L1reg_grid_search_results.pkl'), 'wb') as f:
     pickle.dump({
         'help': 'Each tuning_results dict has keys as (regularization coefficient, learning_rate) and values as [test_accuracy, num_epochs, model].',
         'L1_reg': tuning_results2_l1reg,
         'L1_reg_best': best_hyper2_l1reg,
-        'L2_reg': tuning_results2_l2reg,
-        'L2_reg_best': best_hyper2_l2reg
     }, f)
 
-# Load hyperparameters **don't rerun the grid search above**
-with open(os.path.join(MODELDIR, 'regularization_grid_search_results.pkl'), 'rb') as f:
-    reg_grid_search_results = pickle.load(f)
-
-L1_REG_BEST = reg_grid_search_results['L1_reg_best'][0][0] #best_hyper2_l1reg[0][0]
-L1_LR_BEST = reg_grid_search_results['L1_reg_best'][0][1]
-L2_REG_BEST = reg_grid_search_results['L2_reg_best'][0][0] #best_hyper2_l2reg[0][0]
-L2_LR_BEST = reg_grid_search_results['L2_reg_best'][0][1]
+with open(os.path.join(MODELDIR, 'L2reg_grid_search_results.pkl'), 'wb') as f:
+    pickle.dump({
+        'help': 'Each tuning_results dict has keys as (regularization coefficient, learning_rate) and values as [test_accuracy, num_epochs, model].',
+        'L2_reg': tuning_results2_l2reg,
+        'L2_reg_best': best_hyper2_l2reg,
+    }, f)
