@@ -366,7 +366,7 @@ def train_on_batches(model, optimizer, epochs, train_loader, val_loader=None, ea
                 print(f"NaN loss detected at epoch {epoch+1}, batch {i+1}. Stopping this run.")
                 return None 
             train_loss[epoch].append(batch_loss)
-            print(f"Epoch {epoch+1}/{epochs}, Batch {i+1}/{batch_num} === Loss: {batch_loss:.3} {' '*10}", end='\r')
+            # print(f"Epoch {epoch+1}/{epochs}, Batch {i+1}/{batch_num} === Loss: {batch_loss:.3} {' '*10}", end='\r')
             # end of batch loop for training set
         
         avg_loss = np.mean(train_loss[epoch])
