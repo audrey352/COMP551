@@ -607,80 +607,26 @@ train_loader, val_loader, test_loader = get_data_loaders(
     use_validation=USE_VALIDATION
     )
 
-# Define MLP and optimizer
-model2 = MLP(
-    h=relu, 
-    L=2, 
-    M=256,
-    D=28*28
-    )
 
-optimizer2 = GradientDescent(learning_rate=LEARNING_RATE2, record_grad=True)  # doing one GD iteration by batch in one epoch
-num_epochs = 100
+# Find optimal M for 2 hidden layers
+M1_range = [64, 128, 256, 512, 1024]
+M2_range = [64, 128, 256, 512, 1024]
 
-results_l2 = train_on_batches(
-    model=model2, 
-    optimizer=optimizer2,
-    epochs=num_epochs, 
-    train_loader=train_loader, 
-    val_loader=val_loader if USE_VALIDATION else None, 
-    early_stopping_patience=3,
-    plot_train=True,
-    verbose=False, 
-    save_fig=True, save_name='L2'
-    )
+tuning_results_M = {} # dict to store test accuracies
 
-
-# Checking test predictions for first batch
-test_images, test_labels = next(iter(test_loader))
-test_images = test_images.view(test_images.size(0), -1).numpy()
-test_labels_onehot = np.eye(num_classes)[test_labels.numpy()]
-
-yhat = model2.predict(test_images) # N x C
-
-
-# print("Truth:\n", np.array(test_labels), "\nPrediction:\n", np.argmax(yhat, axis=1))
-print("Accuracy on test set:", evaluate_acc(test_labels_onehot, yhat))
-
-# create confusion matrix
-confusion_matrix = np.zeros((num_classes, num_classes), dtype=int)
-for true_label, pred_label in zip(test_labels.numpy(), np.argmax(yhat, axis=1)):
-    confusion_matrix[true_label, pred_label] += 1
-# visualize confusion matrix
-plt.figure(figsize=(8,6))
-sns.heatmap(confusion_matrix, annot=True, fmt='d', cmap='Blues')
-plt.xlabel('Predicted Label')
-plt.ylabel('True Label')
-plt.title('Confusion Matrix for MLP with 2 Hidden Layers')
-plt.show()
-
-
-# REGULARIZATION
-lr_range = np.linspace(0.01, 0.05, num_hyper)
-reg_range = np.linspace(0.001, 0.02, num_hyper)
-
-# --- Finding best L1 regularization for model with L=2 hidden layers ---
-tuning_results2_l1reg = {} # dict to store test accuracies
 epochs = 50
 
-# get loaders for this batch size (using normalized data)
-train_loader, val_loader, test_loader = get_data_loaders(train_dataset=train_dataset, 
-                                                        test_dataset=test_dataset, 
-                                                        val_dataset=val_dataset, 
-                                                        batch_size=BATCH_SIZE2, 
-                                                        use_validation=USE_VALIDATION)
-
-for reg in reg_range:
-    # loop over learning rates
-    for lr in lr_range:
-        # define model and optimizer (use same model params as for part 1)
-        model = MLP(h=relu, L=2, M=256, D=28*28, l1_reg=reg)
-        optimizer = GradientDescent(learning_rate=lr)
+# using optimal batch size and learning rate from before
+for M1 in M1_range:
+    for M2 in M2_range:
+        
+        model = MLP(h=relu, L=2, M=[M1, M2], D=28*28)
+        optimizer = GradientDescent(learning_rate=LEARNING_RATE2)
         
         results = train_on_batches(model, 
                                    optimizer, 
                                    epochs=epochs, 
-                                   train_loader=train_loader, 
+                                   train_loader=train_loader, # with optimal batch size for L=2
                                    val_loader=val_loader, 
                                    early_stopping_patience=5,
                                    num_classes=num_classes, 
@@ -697,76 +643,19 @@ for reg in reg_range:
             test_acc.append(evaluate_acc(y_test, yh_test))
         avg_test_acc = np.mean(test_acc)
         
-        epoch = len(results["train_loss"])
+        epoch = len(results["train_loss"]) 
         
-        print(f"L1 reg: {reg:.3} Learning Rate: {lr:.3} === Test Accuracy: {avg_test_acc:.3}")
-        tuning_results2_l1reg[(reg, lr)] = [avg_test_acc, epoch, model]
-        
-# finding best hyperparameters
-best_hyper2_l1reg = max(tuning_results2_l1reg.items(), key=lambda x: x[1][0])
-best_model2_l1reg = best_hyper2_l1reg[1][2]
-print(f"Best hyperparameters for L=2 with L1 regularization: L1 Reg = {best_hyper2_l1reg[0][0]:.3}, Learning Rate = {best_hyper2_l1reg[0][1]:.3} with Test Accuracy = {best_hyper2_l1reg[1][0]:.3} over {best_hyper2_l1reg[1][1]} epochs")
-
-
-# --- Finding best L2 regularization for model with L=2 hidden layers ---
-tuning_results2_l2reg = {} # dict to store test accuracies
-epochs = 50
-
-# get loaders for this batch size (using normalized data)
-train_loader, val_loader, test_loader = get_data_loaders(train_dataset=train_dataset, 
-                                                        test_dataset=test_dataset, 
-                                                        val_dataset=val_dataset, 
-                                                        batch_size=BATCH_SIZE2, 
-                                                        use_validation=USE_VALIDATION)
-
-for reg in reg_range:
-    # loop over learning rates
-    for lr in lr_range:
-        # define model and optimizer (use same model params as for part 1)
-        model = MLP(h=relu, L=2, M=256, D=28*28, l2_reg=reg)
-        optimizer = GradientDescent(learning_rate=lr)
-        
-        results = train_on_batches(model, 
-                                   optimizer, 
-                                   epochs=epochs, 
-                                   train_loader=train_loader, 
-                                   val_loader=val_loader, 
-                                   early_stopping_patience=5,
-                                   num_classes=num_classes, 
-                                   plot_train=False, 
-                                   verbose=False, 
-                                   save_best_weights=True)
-        
-        # Evaluate on test set
-        test_acc = []
-        for test_x, test_y in test_loader:
-            test_x = test_x.view(test_x.size(0), -1).numpy()
-            y_test = np.eye(num_classes)[test_y.numpy()]
-            yh_test = model.predict(test_x)
-            test_acc.append(evaluate_acc(y_test, yh_test))
-        avg_test_acc = np.mean(test_acc)
-        
-        epoch = len(results["train_loss"])
-        
-        print(f"L2 reg: {reg:.3} Learning Rate: {lr:.3} === Test Accuracy: {avg_test_acc:.3}")
-        tuning_results2_l2reg[(reg, lr)] = [avg_test_acc, epoch, model]
+        print(f"M1: {M1}, M2: {M2} === Test Accuracy: {avg_test_acc:.3}")
+        tuning_results_M[(M1, M2)] = [avg_test_acc, epoch, model]
         
 # finding best hyperparameters
-best_hyper2_l2reg = max(tuning_results2_l2reg.items(), key=lambda x: x[1][0])
-best_model2_l2reg = best_hyper2_l2reg[1][2]
-print(f"Best hyperparameters for L=2 with L2 regularization: L2 Reg = {best_hyper2_l2reg[0][0]:.3}, Learning Rate = {best_hyper2_l2reg[0][1]:.3} with Test Accuracy = {best_hyper2_l2reg[1][0]:.3} over {best_hyper2_l2reg[1][1]} epochs")
+best_hyper_M = max(tuning_results_M.items(), key=lambda x: x[1][0])
+best_model_M = best_hyper_M[1][2]
+print(f"Best hidden layer sizes for L=2: M1 = {best_hyper_M[0][0]}, M2 = {best_hyper_M[0][1]} with Test Accuracy = {best_hyper_M[1][0]:.3} over {best_hyper_M[1][1]} epochs")
 
 # save all model results
-with open(os.path.join(MODELDIR, 'L1reg_grid_search_results.pkl'), 'wb') as f:
+with open(os.path.join(MODELDIR, 'M1M2_grid_search_results.pkl'), 'wb') as f:
     pickle.dump({
-        'help': 'Each tuning_results dict has keys as (regularization coefficient, learning_rate) and values as [test_accuracy, num_epochs, model].',
-        'L1_reg': tuning_results2_l1reg,
-        'L1_reg_best': best_hyper2_l1reg,
-    }, f)
-
-with open(os.path.join(MODELDIR, 'L2reg_grid_search_results.pkl'), 'wb') as f:
-    pickle.dump({
-        'help': 'Each tuning_results dict has keys as (regularization coefficient, learning_rate) and values as [test_accuracy, num_epochs, model].',
-        'L2_reg': tuning_results2_l2reg,
-        'L2_reg_best': best_hyper2_l2reg,
+        'M1M2': tuning_results_M,
+        'M1M2_best': best_hyper_M,
     }, f)
