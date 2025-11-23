@@ -12,4 +12,4 @@
 
 module load miniconda/miniconda-fall2024
 
-python /home/2024/aberni24/Courses/COMP551/Assignment3/gridsearch.py 
+python /home/2024/aberni24/Courses/COMP551/Assignment3/gridsearch_L2.py 
