@@ -1,7 +1,7 @@
 torch
 torchvision
+tqdm
 numpy
 seaborn
-matplotlib
-tqdm
 pandas
+matplotlib
