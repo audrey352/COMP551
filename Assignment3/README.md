@@ -55,3 +55,5 @@ The following experiments were conducted in order:
    - Added new fully connected layers and trained only these layers on FashionMNIST with data augmentation.
    - Ran experiments to find the optimal number of fully connected layers to add.
    - Compared performance (accuracy and training time) to the best MLP and CNN.
+
+Note: The gridsearch cells are commented out to prevent accidentally excuting the code as it takes a long time to run. We ran each of them, saved the results, and are now loading them in. These files are provided with the code.
