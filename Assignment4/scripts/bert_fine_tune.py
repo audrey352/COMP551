@@ -19,8 +19,8 @@ import pickle # to save models
 
 
 ASSIGNMENT_DIR = sys.argv[1]
-MODELDIR = ASSIGNMENT_DIR + '/models/'
-DATA_DIR = ASSIGNMENT_DIR + '/datasets/'
+MODELDIR = ASSIGNMENT_DIR + 'models/'
+DATA_DIR = ASSIGNMENT_DIR + 'datasets/'
 
 
 def load_data(file_path, dtype=str)->np.ndarray:
