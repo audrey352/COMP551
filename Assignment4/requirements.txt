@@ -1,7 +1,6 @@
-torch
-torchvision
-tqdm
 numpy
-seaborn
 pandas
 matplotlib
+seaborn
+torch
+transformers
