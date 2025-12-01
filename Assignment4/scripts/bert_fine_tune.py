@@ -165,6 +165,44 @@ def bert_collate(batch):
 train_loader_bert = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=bert_collate)
 test_loader_bert = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=bert_collate)
 
+
+# --- Load tokenizer & Model---
+num_classes = 35  # flattened parent-child labels
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True, clean_up_tokenization_spaces=True)
+
+model = BertForSequenceClassification.from_pretrained(
+    'bert-base-uncased', num_labels=num_classes
+).to(device)
+original_state_dict = model.state_dict()  # save original state dict for resetting later
+
+def bert_collate(batch):
+    """
+    Function to collate a batch of data for BERT model
+    1. tokenize texts
+    2. pad sequences to max length in batch
+    3. return input_ids, attention_mask, labels
+    """
+
+    texts = [item[0] for item in batch]  # get texts
+    labels = [item[4] for item in batch]  # use flattened labels
+
+    enc = tokenizer(
+        texts,
+        padding=True,
+        truncation=True,
+        max_length=256,
+        add_special_tokens=True,
+        return_tensors="pt"
+    )
+    
+    return enc["input_ids"], enc["attention_mask"], torch.tensor(labels)
+
+# Get tokenized loaders
+train_loader_bert = DataLoader(train_dataset, batch_size=16, shuffle=True, collate_fn=bert_collate)
+test_loader_bert = DataLoader(test_dataset, batch_size=16, shuffle=False, collate_fn=bert_collate)
+
 # --- Fine-Tuning BERT Model ---
 # ** Running this on mimi GPU with a python script **
 learning_rates = [1e-5, 2e-5, 3e-5]
@@ -173,24 +211,18 @@ learning_rates = [1e-5, 2e-5, 3e-5]
 results = {}
 
 for lr in learning_rates:
-    # Model
-    model = BertForSequenceClassification.from_pretrained(
-        'bert-base-uncased', num_labels=num_classes
-    )
-    model.to(device)
-
-    # Optimizer
+    # Reset optimizer & model
     optimizer = AdamW(model.parameters(), lr=lr)
-    loss_fn = None  # BERT returns loss if labels are passed
+    model.load_state_dict(original_state_dict)
 
-    # Lists to store losses and accuracies
-    train_losses = []
-    test_losses = []
-    test_accuracies = []
+    # Store losses and accuracies
+    train_losses, test_losses, test_accuracies = [], [], []
 
     # Training loop (only a few epochs)
     num_epochs = 3
     for epoch in range(num_epochs):
+        torch.cuda.empty_cache()
+        
         # Train
         model.train()
         total_loss = 0
@@ -242,14 +274,16 @@ for lr in learning_rates:
                 f"Test Loss: {avg_test_loss:.4f}, "
                 f"Test Acc: {test_acc:.4f}")
         
-        # Store results for this learning rate
-        results[lr] = {
-            "train_loss": train_losses,
-            "test_loss": test_losses,
-            "test_accuracy": test_accuracies
-        }
+    # Store results for this learning rate
+    results[lr] = {
+        "train_loss": train_losses,
+        "test_loss": test_losses,
+        "test_accuracy": test_accuracies
+    }
 
-    # Save results & final model
-    torch.save(model.state_dict(), MODELDIR + "bert_tuning_model.pth")
-    with open(MODELDIR + "bert_tuning_results.pkl", "wb") as f:
-        pickle.dump(results, f)
+    # Save model for this learning rate
+    torch.save(model.state_dict(), MODELDIR + f"bert_model_lr{lr}.pth")
+
+# Save final results
+with open(MODELDIR + "bert_tuning_results.pkl", "wb") as f:
+    pickle.dump(results, f)
