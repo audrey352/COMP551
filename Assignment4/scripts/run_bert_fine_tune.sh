@@ -2,9 +2,10 @@
 #
 #SBATCH -w gpu-teach-01
 #SBATCH -c 4                     # number of CPU cores
-#SBATCH --mem=4G                 # memory per core
+#SBATCH --mem=2G                 # memory per CPU core
 #SBATCH --gpus=1                 # request 1 GPU per job
 #SBATCH -t 0-4:00                # max time 4 hours
+#SBATCH --propagate=NONE         # IMPORTANT for long jobs
 #SBATCH -o job_logs/scripts/slurm.%N.%j.out   # STDOUT log
 #SBATCH -e job_logs/scripts/slurm.%N.%j.err   # STDERR log
 #SBATCH --mail-user=audreanne.bernier@mail.mcgill.ca

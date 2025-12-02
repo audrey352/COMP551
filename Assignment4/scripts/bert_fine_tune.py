@@ -4,7 +4,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
 
-from gensim.models import Word2Vec
 
 import torch
 import torch.nn as nn
@@ -13,9 +12,6 @@ from torch.optim import AdamW
 from torch.nn.utils.rnn import pad_sequence
 
 from transformers import BertTokenizer, BertForSequenceClassification
-
-import unidecode
-import string
 
 import os
 import multiprocessing
@@ -149,16 +145,13 @@ class WOSDataset(Dataset):
         return len(self.X)
 
     def __getitem__(self, idx):
-        # raw = self.X[idx]
-        # cleaned = clean_text(raw)
-        # return cleaned, self.Y[idx], self.YL1[idx], self.YL2[idx], self.YL_flat[idx]
         label = self.select_label(self.label)
         data = self.embedded_sentences if self.embedded_sentences is not None else self.X
         return data[idx], label[idx]
     
 
 # Loading WOS11967
-dataset_dir = './datasets/WOS11967/'
+dataset_dir = DATA_DIR + 'WOS11967/'
 WOS11967_dataset = WOSDataset(dataset_dir)
 
 # Pre-procesing data for LSTM
@@ -171,6 +164,18 @@ num_train = int(len(WOS11967_dataset) * TRAIN_RATIO)
 num_test = len(WOS11967_dataset) - num_train
 train_dataset, test_dataset = random_split(WOS11967_dataset, [num_train, num_test])
 
+
+
+# --- Select correct labels in datasets ---
+if isinstance(train_dataset, torch.utils.data.Subset):
+        indices = train_dataset.indices
+        train_dataset = train_dataset.dataset # overwrite to get original (full) dataset
+train_dataset.set_label('flat')
+
+if isinstance(test_dataset, torch.utils.data.Subset):
+        indices = test_dataset.indices
+        test_dataset = test_dataset.dataset # overwrite to get original (full) dataset
+test_dataset.set_label('flat')
 
 # --- Load tokenizer & Model---
 num_classes = 35  # flattened parent-child labels
@@ -193,7 +198,7 @@ def bert_collate(batch):
     """
 
     texts = [item[0] for item in batch]  # get texts
-    labels = [item[4] for item in batch]  # use flattened labels
+    labels = [item[1] for item in batch]  # use flattened labels
 
     enc = tokenizer(
         texts,
