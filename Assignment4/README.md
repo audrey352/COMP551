@@ -6,7 +6,6 @@ Assignment 4: Classification of Textual Data
 
 This project explores traditional machine learning and deep learning NLP techniques. Specifically, the project focuses on document classification using the Web of Science (WOS) dataset. The aim is to compare the performance of different models on the classification task and analyze their behavior.
 
------
 
 Tasks
 -----
