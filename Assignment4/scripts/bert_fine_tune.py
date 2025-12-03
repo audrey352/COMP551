@@ -213,7 +213,6 @@ def bert_collate(batch):
 
 
 # --- Fine-Tuning BERT Model ---
-# ** Running this on mimi GPU with a python script **
 learning_rates = [1e-5, 2e-5, 3e-5]
 
 # Dict to store all results
