@@ -1,4 +1,4 @@
-PHYS551 - Applied Machine Learning
+COMP551 - Applied Machine Learning
 ==================================
 
 Assignment 4: Classification of Textual Data
