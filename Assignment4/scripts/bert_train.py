@@ -160,8 +160,6 @@ num_train = int(len(WOS11967_dataset) * TRAIN_RATIO)
 num_test = len(WOS11967_dataset) - num_train
 train_dataset, test_dataset = random_split(WOS11967_dataset, [num_train, num_test])
 
-
-
 # --- Select correct labels in datasets ---
 if isinstance(train_dataset, torch.utils.data.Subset):
         indices = train_dataset.indices
@@ -173,6 +171,7 @@ if isinstance(test_dataset, torch.utils.data.Subset):
         test_dataset = test_dataset.dataset # overwrite to get original (full) dataset
 test_dataset.set_label('flat')
 
+
 # --- Load tokenizer & Model---
 num_classes = 35  # flattened parent-child labels
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -180,8 +179,9 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True, clean_up_tokenization_spaces=True)
 
 model = BertForSequenceClassification.from_pretrained(
-    'bert-base-uncased', num_labels=num_classes
+    'bert-base-uncased', num_labels=num_classes, output_attentions=True
 ).to(device)
+model.config.output_attentions = True  # enable attention outputs
 original_state_dict = {k: v.clone() for k, v in model.state_dict().items()} # save original state dict for resetting later
 
 
@@ -211,10 +211,15 @@ def bert_collate(batch):
 # Define optimal parameters
 OPTIMAL_LR = 2e-5
 OPTIMAL_BS = 8
-NUM_EPOCHS = 10
 
+# Other parameters
+NUM_EPOCHS = 10
+ATTENTION_HEAD = 3  # pick an attention head to save
+saved_wrong = False  # to keep track if we've saved misclassified samples
 
 # --- Training BERT Model ---
+# ** Running this on mimi GPU with a python script **
+
 # Get tokenized loaders (with current batch size)
 train_loader_bert = DataLoader(train_dataset, batch_size=OPTIMAL_BS, shuffle=True, collate_fn=bert_collate)
 test_loader_bert = DataLoader(test_dataset, batch_size=OPTIMAL_BS, shuffle=False, collate_fn=bert_collate)
@@ -227,7 +232,9 @@ torch.cuda.empty_cache()
 # Store losses and accuracies at each epoch
 train_losses, test_losses, test_accuracies = [], [], []
 
-# Training loop
+
+
+# -- Training loop --
 for epoch in range(NUM_EPOCHS):
     # Train
     model.train()
@@ -250,7 +257,13 @@ for epoch in range(NUM_EPOCHS):
     avg_train_loss = total_loss / len(train_loader_bert)
     train_losses.append(avg_train_loss)
 
-    # Evaluate on test set
+    # -- Evaluate on test set --
+    # Save attention for last epoch
+    if epoch == NUM_EPOCHS - 1:
+        save_attention = True
+    else:
+        save_attention = False
+
     model.eval()
     total_test_loss = 0
     correct = 0
@@ -270,6 +283,33 @@ for epoch in range(NUM_EPOCHS):
             preds = torch.argmax(logits, dim=1)
             correct += (preds == labels).sum().item()
             total += labels.size(0)
+
+            # - Save attention for a misclassified sample -
+            if save_attention and not saved_wrong:
+                for i in range(len(labels)):  # go through instances in batch
+                    if preds[i] != labels[i]:  # misclassification found
+
+                        # get all attention layers for this sample and head
+                        head_attn_all_layers = [
+                            layer[i, ATTENTION_HEAD].cpu()  # matrix for this layer
+                            for layer in outputs.attentions
+                        ]
+                        # get tokens
+                        tokens = tokenizer.convert_ids_to_tokens(
+                            input_ids[i].cpu().tolist()
+                        )
+                        # save
+                        save_dict = {
+                            "head": ATTENTION_HEAD,
+                            "attentions": head_attn_all_layers,
+                            "tokens": tokens
+                        }
+
+                        with open(MODELDIR + "bert_attention_misclassified.pkl", "wb") as f:
+                            pickle.dump(save_dict, f)
+
+                        saved_wrong = True
+                        break
 
         avg_test_loss = total_test_loss / len(test_loader_bert)
         test_losses.append(avg_test_loss)
