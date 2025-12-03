@@ -214,8 +214,7 @@ OPTIMAL_BS = 8
 
 # Other parameters
 NUM_EPOCHS = 10
-ATTENTION_HEAD = 3  # pick an attention head to save
-saved_wrong = False  # to keep track if we've saved misclassified samples
+# ATTENTION_HEAD = 3  # pick an attention head to save
 
 # --- Training BERT Model ---
 # ** Running this on mimi GPU with a python script **
@@ -231,7 +230,8 @@ torch.cuda.empty_cache()
 
 # Store losses and accuracies at each epoch
 train_losses, test_losses, test_accuracies = [], [], []
-
+# Store attention data
+saved_correct, saved_wrong = [], []
 
 
 # -- Training loop --
@@ -259,15 +259,13 @@ for epoch in range(NUM_EPOCHS):
 
     # -- Evaluate on test set --
     # Save attention for last epoch
-    if epoch == NUM_EPOCHS - 1:
-        save_attention = True
-    else:
-        save_attention = False
+    save_attention = epoch == NUM_EPOCHS - 1
 
     model.eval()
     total_test_loss = 0
     correct = 0
     total = 0
+
     with torch.no_grad():
         for batch in test_loader_bert:
             input_ids, attention_mask, labels = batch
@@ -284,33 +282,47 @@ for epoch in range(NUM_EPOCHS):
             correct += (preds == labels).sum().item()
             total += labels.size(0)
 
-            # - Save attention for a misclassified sample -
+            # - Save attention for some samples -
             if save_attention and not saved_wrong:
                 for i in range(len(labels)):  # go through instances in batch
-                    if preds[i] != labels[i]:  # misclassification found
-
+                    # Check for misclassification
+                    if preds[i] != labels[i] and len(saved_wrong) < 2:
                         # get all attention layers for this sample and head
                         head_attn_all_layers = [
-                            layer[i, ATTENTION_HEAD].cpu()  # matrix for this layer
+                            # layer[i, ATTENTION_HEAD].cpu()  # matrix for this layer, saving one head
+                            layer[i].cpu()  # saving all heads
                             for layer in outputs.attentions
                         ]
-                        # get tokens
-                        tokens = tokenizer.convert_ids_to_tokens(
-                            input_ids[i].cpu().tolist()
-                        )
-                        # save
-                        save_dict = {
-                            "head": ATTENTION_HEAD,
+                        tokens = tokenizer.convert_ids_to_tokens(input_ids[i].cpu().tolist())
+                        saved_wrong.append({
+                            # "head": ATTENTION_HEAD,
                             "attentions": head_attn_all_layers,
-                            "tokens": tokens
-                        }
+                            "tokens": tokens,
+                            "label": labels[i].item(),
+                            "pred": preds[i].item()
+                        })
 
-                        with open(MODELDIR + "bert_attention_misclassified.pkl", "wb") as f:
-                            pickle.dump(save_dict, f)
-
-                        saved_wrong = True
+                    # Check for correct classification
+                    elif preds[i] == labels[i] and len(saved_correct) < 2:
+                        head_attn_all_layers = [
+                            # layer[i, ATTENTION_HEAD].cpu()
+                            layer[i].cpu()  # saving all heads
+                            for layer in outputs.attentions
+                        ]
+                        tokens = tokenizer.convert_ids_to_tokens(input_ids[i].cpu().tolist())
+                        saved_correct.append({
+                            # "head": ATTENTION_HEAD,
+                            "attentions": head_attn_all_layers,
+                            "tokens": tokens,
+                            "label": labels[i].item(),
+                            "pred": preds[i].item()
+                        })
+                    
+                    # Break if we've saved enough
+                    if len(saved_correct) == 2 and len(saved_wrong) == 2:
                         break
 
+        # Compute epoch results
         avg_test_loss = total_test_loss / len(test_loader_bert)
         test_losses.append(avg_test_loss)
         test_acc = correct / total
@@ -322,7 +334,7 @@ for epoch in range(NUM_EPOCHS):
             f"Test Acc: {test_acc:.4f}")
         
 # Store results
-results = {
+train_results = {
     "train_loss": train_losses,
     "test_loss": test_losses,
     "test_accuracy": test_accuracies
@@ -330,4 +342,8 @@ results = {
 
 # Save final training results
 with open(MODELDIR + f"bert_full_training_results.pkl", "wb") as f:
-    pickle.dump(results, f)
+    pickle.dump(train_results, f)
+with open(MODELDIR + "bert_attention_misclassified.pkl", "wb") as f:
+    pickle.dump(saved_wrong, f)
+with open(MODELDIR + "bert_attention_correctly_classified.pkl", "wb") as f:
+    pickle.dump(saved_correct, f)
