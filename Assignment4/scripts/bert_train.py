@@ -289,5 +289,5 @@ results = {
 }
 
 # Save final training results
-with open(MODELDIR + f"bert_tuning_results_full_training.pkl", "wb") as f:
+with open(MODELDIR + f"bert_full_training_results.pkl", "wb") as f:
     pickle.dump(results, f)
