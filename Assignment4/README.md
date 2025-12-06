@@ -11,7 +11,7 @@ This project explores traditional machine learning and deep learning NLP techniq
 *Note for use on Windows machines:*
 To avoid import errors, use: 
 ```pip install --upgrade setuptools```
-```pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0```
+```pip install --force-reinstall torch==2.8.0+cu126 torchvision==0.23.0+cu126 torchaudio==2.8.0+cu126 --index-url https://download.pytorch.org/whl/cu126```
 ```pip install transformers==4.51.0```
 
 ---
