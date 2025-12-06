@@ -166,7 +166,7 @@ class LSTM(nn.Module):
                     plt.ylabel('Loss')
                     plt.title('Loss over Epochs')
                     
-                    plt.savefig (os.path.join(self.directory, f'training_loss_epoch_{epoch+1}.png'))
+                    plt.savefig (os.path.join(self.directory, f'training_loss_e{epochs}_b{batch_size}_lr{lr}.png'))
                     plt.close()
 
             # if log.getEffectiveLevel() <= logging.INFO: # print only if log level is INFO. Doing this to avoid issues with logging output

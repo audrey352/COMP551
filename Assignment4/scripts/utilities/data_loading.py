@@ -121,3 +121,18 @@ class WOSDataset(Dataset):
         label = self.select_label(self.label)
         data = self.embedded_sentences if self.embedded_sentences is not None else self.X
         return data[idx], label[idx]
+    
+def save_dataset(dataset, save_dir, filename):
+    """
+    Save dataset object to specified directory
+    """
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    torch.save(dataset, os.path.join(save_dir, filename))
+    
+def load_dataset(load_dir, filename):
+    """
+    Load dataset object from specified directory
+    """
+    dataset = torch.load(os.path.join(load_dir, filename))
+    return dataset
