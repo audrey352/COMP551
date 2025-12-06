@@ -1,4 +1,4 @@
-PHYS551 - Applied Machine Learning
+COMP551 - Applied Machine Learning
 ==================================
 
 Assignment 4: Classification of Textual Data
@@ -27,8 +27,8 @@ The following experiments were conducted in order:
    - 
 
 2. Training of a BERT model
-   - Fine-tuning of hyperparameters: learning rate
-   - 
+   - Fine-tuning of hyperparameters: learning rate and batch size
+   - Full training of BERT using optimal hyperparameters
 
 3. 
    - 

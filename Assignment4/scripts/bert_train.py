@@ -1,0 +1,349 @@
+import numpy as np
+import seaborn as sns
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
+
+
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader, random_split
+from torch.optim import AdamW
+from torch.nn.utils.rnn import pad_sequence
+
+from transformers import BertTokenizer, BertForSequenceClassification
+
+import os
+import multiprocessing
+import logging # for logging training process
+import time # to track training time
+import pickle # to save models
+import unicodedata
+import argparse
+
+
+# FOR SCRIPT ARGUMENTS
+parser = argparse.ArgumentParser()
+parser.add_argument("assignment_dir", type=str,
+                    help="Path to the assignment directory")
+args = parser.parse_args()
+
+ASSIGNMENT_DIR = args.assignment_dir
+MODELDIR = ASSIGNMENT_DIR + 'models/'
+DATA_DIR = ASSIGNMENT_DIR + 'datasets/'
+
+
+def load_data(file_path, dtype=str)->np.ndarray:
+    # read file 
+    with open(file_path, "r") as f:
+        lines = [line.strip() for line in f]  # list of all lines
+
+    if dtype == int:
+        return [int(x) for x in lines]  # make sure target lists are int type
+    
+    return np.array(lines)  # return array
+
+
+def clean_text(text):
+    """
+    Clean text by:
+    - lowercasing
+    - removing accents
+    - removing punctuation
+    - keeping only alphanumeric characters, hyphens and spaces
+    - removing double spaces
+    """
+    # Lowercase
+    text = text.lower()
+
+    # Removing accents
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+
+    punctuation = ",.;:!?\"'()[]{}<>@#$%^&*_+=/\\|`~•–—"  # list of punctuation to remove
+    for p in punctuation:
+        text = text.replace(p, " ")
+
+    # Keeping only alphanumeric characters, hyphens and spaces
+    cleaned = []
+    for ch in text:
+        if ch.isalnum() or ch == '-' or ch == ' ':
+            cleaned.append(ch)
+        else:
+            cleaned.append(" ")
+    text = "".join(cleaned)
+
+    # Removing double spaces
+    while "  " in text:
+        text = text.replace("  ", " ")
+    
+    return text.strip()
+
+
+class WOSDataset(Dataset):
+    """
+    Class to build a torch dataset from the WOS .txt files
+    """
+
+    def __init__(self, dataset_dir, num_children=5):
+        self.Xraw = load_data(os.path.join(dataset_dir, 'X.txt')) # not tensor because string elements! oh well :(
+        self.X = self.Xraw.copy()
+        self.label = 'yl1' # default label
+        self.Y =  torch.LongTensor(load_data(os.path.join(dataset_dir, 'Y.txt'), dtype=int)) # using LongTensor for cross-entropy loss (required!)
+        self.YL1 = torch.LongTensor(load_data(os.path.join(dataset_dir, 'YL1.txt'), dtype=int))
+        self.YL2 = torch.LongTensor(load_data(os.path.join(dataset_dir, 'YL2.txt'), dtype=int))
+        self.sentences = []
+        self.embedded_sentences = None
+
+        # Compute flattened labels
+        self.num_children = num_children
+        self.YL_flat =  torch.LongTensor(np.array([yl1 * num_children + yl2 for yl1, yl2 in zip(self.YL1, self.YL2)]))
+        
+    def set_label(self, label):
+        label = label.lower() if isinstance(label, str) else label
+        if label in ['y', 'yl1', 'yl2', 'flat']:
+            self.label = label
+        else:
+            raise ValueError("label must be 'y', 'yl1', 'yl2', or 'flat'")
+        
+    def select_label(self, label=None):
+        """
+        State which label to use: 'y', 'yl1', 'yl2', or 'flat'
+        """
+        label = label.lower() if isinstance(label, str) else label
+        if label == 'y':
+            return self.Y
+        elif label == 'yl1':
+            return self.YL1
+        elif label == 'yl2':
+            return self.YL2
+        elif label == 'flat':
+            return self.YL_flat
+        else:
+            raise ValueError("label must be 'y', 'yl1', 'yl2', or 'flat'")
+    
+    def clean_data(self):
+        self.X = np.array([clean_text(x) for x in self.Xraw])
+        
+    def get_sentences(self):
+        self.sentences = [text.split() for text in self.X]
+        
+    def embed_words(self, embed_model):
+        self.embedded_sentences = []
+        nsentences = len(self.sentences)
+        for i, sentence in enumerate(self.sentences):
+            print(f'Embedding sentence {i}/{nsentences}', end='\r')
+            embedded = [embed_model.wv[word] for word in sentence if word in embed_model.wv]
+            embedded_tensor = torch.tensor(embedded, dtype=torch.float32)
+            self.embedded_sentences.append(embedded_tensor)
+            
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        label = self.select_label(self.label)
+        data = self.embedded_sentences if self.embedded_sentences is not None else self.X
+        return data[idx], label[idx]
+    
+
+# Loading WOS11967
+dataset_dir = DATA_DIR + 'WOS11967/'
+WOS11967_dataset = WOSDataset(dataset_dir)
+
+# Pre-procesing data for LSTM
+WOS11967_dataset.clean_data() 
+WOS11967_dataset.get_sentences() # list of list of words
+
+# train/test split
+TRAIN_RATIO = 0.8
+num_train = int(len(WOS11967_dataset) * TRAIN_RATIO)
+num_test = len(WOS11967_dataset) - num_train
+train_dataset, test_dataset = random_split(WOS11967_dataset, [num_train, num_test])
+
+# --- Select correct labels in datasets ---
+if isinstance(train_dataset, torch.utils.data.Subset):
+        indices = train_dataset.indices
+        train_dataset = train_dataset.dataset # overwrite to get original (full) dataset
+train_dataset.set_label('flat')
+
+if isinstance(test_dataset, torch.utils.data.Subset):
+        indices = test_dataset.indices
+        test_dataset = test_dataset.dataset # overwrite to get original (full) dataset
+test_dataset.set_label('flat')
+
+
+# --- Load tokenizer & Model---
+num_classes = 35  # flattened parent-child labels
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True, clean_up_tokenization_spaces=True)
+
+model = BertForSequenceClassification.from_pretrained(
+    'bert-base-uncased', num_labels=num_classes, output_attentions=True
+).to(device)
+model.config.output_attentions = True  # enable attention outputs
+original_state_dict = {k: v.clone() for k, v in model.state_dict().items()} # save original state dict for resetting later
+
+
+def bert_collate(batch):
+    """
+    Function to collate a batch of data for BERT model
+    1. tokenize texts
+    2. pad sequences to max length in batch
+    3. return input_ids, attention_mask, labels
+    """
+
+    texts = [item[0] for item in batch]  # get texts
+    labels = [item[1] for item in batch]  # use flattened labels
+
+    enc = tokenizer(
+        texts,
+        padding=True,
+        truncation=True,
+        max_length=256,
+        add_special_tokens=True,
+        return_tensors="pt"
+    )
+    
+    return enc["input_ids"], enc["attention_mask"], torch.tensor(labels)
+
+
+# Define optimal parameters
+OPTIMAL_LR = 2e-5
+OPTIMAL_BS = 8
+
+# Other parameters
+NUM_EPOCHS = 10
+# ATTENTION_HEAD = 3  # pick an attention head to save
+
+# --- Training BERT Model ---
+# ** Running this on mimi GPU with a python script **
+
+# Get tokenized loaders (with current batch size)
+train_loader_bert = DataLoader(train_dataset, batch_size=OPTIMAL_BS, shuffle=True, collate_fn=bert_collate)
+test_loader_bert = DataLoader(test_dataset, batch_size=OPTIMAL_BS, shuffle=False, collate_fn=bert_collate)
+
+# Reset optimizer & model (to prevent memory issues)
+model.load_state_dict(original_state_dict)
+optimizer = AdamW(model.parameters(), lr=OPTIMAL_LR)
+torch.cuda.empty_cache()
+
+# Store losses and accuracies at each epoch
+train_losses, test_losses, test_accuracies = [], [], []
+# Store attention data
+saved_correct, saved_wrong = [], []
+
+
+# -- Training loop --
+for epoch in range(NUM_EPOCHS):
+    # Train
+    model.train()
+    total_loss = 0
+
+    for batch in train_loader_bert:
+        input_ids, attention_mask, labels = batch
+        input_ids = input_ids.to(device)
+        attention_mask = attention_mask.to(device)
+        labels = labels.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+        loss = outputs.loss
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+
+    avg_train_loss = total_loss / len(train_loader_bert)
+    train_losses.append(avg_train_loss)
+
+    # -- Evaluate on test set --
+    # Save attention for last epoch
+    save_attention = epoch == NUM_EPOCHS - 1
+
+    model.eval()
+    total_test_loss = 0
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+        for batch in test_loader_bert:
+            input_ids, attention_mask, labels = batch
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
+            labels = labels.to(device)
+
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+            loss = outputs.loss
+            logits = outputs.logits
+            total_test_loss += loss.item()
+
+            preds = torch.argmax(logits, dim=1)
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
+
+            # - Save attention for some samples -
+            if save_attention and not saved_wrong:
+                for i in range(len(labels)):  # go through instances in batch
+                    # Check for misclassification
+                    if preds[i] != labels[i] and len(saved_wrong) < 2:
+                        # get all attention layers for this sample and head
+                        head_attn_all_layers = [
+                            # layer[i, ATTENTION_HEAD].cpu()  # matrix for this layer, saving one head
+                            layer[i].cpu()  # saving all heads
+                            for layer in outputs.attentions
+                        ]
+                        tokens = tokenizer.convert_ids_to_tokens(input_ids[i].cpu().tolist())
+                        saved_wrong.append({
+                            # "head": ATTENTION_HEAD,
+                            "attentions": head_attn_all_layers,
+                            "tokens": tokens,
+                            "label": labels[i].item(),
+                            "pred": preds[i].item()
+                        })
+
+                    # Check for correct classification
+                    elif preds[i] == labels[i] and len(saved_correct) < 2:
+                        head_attn_all_layers = [
+                            # layer[i, ATTENTION_HEAD].cpu()
+                            layer[i].cpu()  # saving all heads
+                            for layer in outputs.attentions
+                        ]
+                        tokens = tokenizer.convert_ids_to_tokens(input_ids[i].cpu().tolist())
+                        saved_correct.append({
+                            # "head": ATTENTION_HEAD,
+                            "attentions": head_attn_all_layers,
+                            "tokens": tokens,
+                            "label": labels[i].item(),
+                            "pred": preds[i].item()
+                        })
+                    
+                    # Break if we've saved enough
+                    if len(saved_correct) == 2 and len(saved_wrong) == 2:
+                        break
+
+        # Compute epoch results
+        avg_test_loss = total_test_loss / len(test_loader_bert)
+        test_losses.append(avg_test_loss)
+        test_acc = correct / total
+        test_accuracies.append(test_acc)
+
+        print(f"Epoch {epoch+1}/{NUM_EPOCHS} -- "
+            f"Train Loss: {avg_train_loss:.4f}, "
+            f"Test Loss: {avg_test_loss:.4f}, "
+            f"Test Acc: {test_acc:.4f}")
+        
+# Store results
+train_results = {
+    "train_loss": train_losses,
+    "test_loss": test_losses,
+    "test_accuracy": test_accuracies
+}
+
+# Save final training results
+with open(MODELDIR + f"bert_full_training_results.pkl", "wb") as f:
+    pickle.dump(train_results, f)
+with open(MODELDIR + "bert_attention_misclassified.pkl", "wb") as f:
+    pickle.dump(saved_wrong, f)
+with open(MODELDIR + "bert_attention_correctly_classified.pkl", "wb") as f:
+    pickle.dump(saved_correct, f)

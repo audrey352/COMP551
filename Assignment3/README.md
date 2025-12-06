@@ -1,4 +1,4 @@
-PHYS551 - Applied Machine Learning
+COMP551 - Applied Machine Learning
 ==================================
 
 Assignment 3: Classification of Image Data with Multilayer Perceptrons and Convolutional Neural Networks
